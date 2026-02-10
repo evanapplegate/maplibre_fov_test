@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Habitat Restoration Area</title>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:system-ui,sans-serif}
+#map{width:100%;height:100%}
+#controls{
+  position:absolute;top:12px;left:12px;z-index:10;
+  background:rgba(255,255,255,.92);backdrop-filter:blur(6px);
+  border-radius:8px;padding:12px 16px;box-shadow:0 2px 8px rgba(0,0,0,.18);
+  display:flex;flex-direction:column;gap:8px;min-width:200px;
+}
+#controls label{font-size:13px;font-weight:600;color:#333;display:flex;justify-content:space-between;align-items:center}
+#controls input[type=range]{width:100%;accent-color:#3b82f6}
+#fov-val{font-variant-numeric:tabular-nums;min-width:2.5em;text-align:right}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="controls">
+  <label>FOV <span id="fov-val">36</span>&deg;</label>
+  <input id="fov-slider" type="range" min="1" max="60" step="0.5" value="36"/>
+</div>
+<script>
+(function(){
+  "use strict";
+
+  // ---- verbose error logging ----
+  window.onerror=function(m,s,l,c,e){
+    const msg=`[GLOBAL ERROR] ${m} at ${s}:${l}:${c}`;
+    console.error(msg,e);
+    logToFile(msg);
+  };
+  window.addEventListener("unhandledrejection",function(ev){
+    const msg=`[UNHANDLED REJECTION] ${ev.reason}`;
+    console.error(msg);
+    logToFile(msg);
+  });
+  const _errors=[];
+  function logToFile(m){_errors.push(new Date().toISOString()+" "+m)}
+  window._dumpErrors=function(){return _errors.join("\n")}
+
+  // ---- map init ----
+  const map = new maplibregl.Map({
+    container:"map",
+    style:"https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    center:[-112.06, 33.417],
+    zoom:13,
+    hash:true
+  });
+
+  map.addControl(new maplibregl.NavigationControl(),"top-right");
+
+  map.on("load",function(){
+    console.info("[MAP] style loaded, fetching data.geojson");
+
+    fetch("data.geojson")
+      .then(function(r){
+        if(!r.ok) throw new Error("fetch data.geojson failed: "+r.status);
+        return r.json();
+      })
+      .then(function(geojson){
+        console.info("[MAP] geojson loaded, features:",geojson.features.length);
+
+        map.addSource("habitat",{type:"geojson",data:geojson});
+
+        map.addLayer({
+          id:"habitat-fill",
+          type:"fill",
+          source:"habitat",
+          paint:{
+            "fill-color":"#22c55e",
+            "fill-opacity":0.35
+          }
+        });
+
+        map.addLayer({
+          id:"habitat-outline",
+          type:"line",
+          source:"habitat",
+          paint:{
+            "line-color":"#15803d",
+            "line-width":2
+          }
+        });
+
+        // fit to bounds
+        const bounds=new maplibregl.LngLatBounds();
+        geojson.features.forEach(function(f){
+          if(f.geometry.type==="Polygon"){
+            f.geometry.coordinates[0].forEach(function(c){bounds.extend(c)});
+          }else if(f.geometry.type==="MultiPolygon"){
+            f.geometry.coordinates.forEach(function(poly){
+              poly[0].forEach(function(c){bounds.extend(c)});
+            });
+          }
+        });
+        map.fitBounds(bounds,{padding:60});
+        console.info("[MAP] layers added, fitted to bounds");
+      })
+      .catch(function(err){
+        console.error("[MAP] load error:",err);
+        logToFile("[MAP] "+err);
+      });
+  });
+
+  // ---- FOV slider ----
+  const slider=document.getElementById("fov-slider");
+  const valSpan=document.getElementById("fov-val");
+
+  // set initial FOV to match slider default
+  map.transform.fov = parseFloat(slider.value);
+  map.triggerRepaint();
+
+  slider.addEventListener("input",function(){
+    const fov=parseFloat(this.value);
+    valSpan.textContent=fov;
+    map.transform.fov=fov;
+    map.triggerRepaint();
+    console.info("[FOV]",fov);
+  });
+
+  console.info("[INIT] map created, controls ready");
+})();
+</script>
+</body>
+</html>
