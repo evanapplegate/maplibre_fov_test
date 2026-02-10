@@ -31,7 +31,11 @@ html,body{height:100%;font-family:system-ui,sans-serif}
 (function(){
   "use strict";
 
-  // ---- verbose error logging ----
+  // ---------------------------------------------------------------------------
+  // ERROR LOGGING
+  // Captures all uncaught errors and unhandled promise rejections to an
+  // in-memory array. Call window._dumpErrors() in devtools to review them.
+  // ---------------------------------------------------------------------------
   window.onerror=function(m,s,l,c,e){
     const msg=`[GLOBAL ERROR] ${m} at ${s}:${l}:${c}`;
     console.error(msg,e);
@@ -46,7 +50,11 @@ html,body{height:100%;font-family:system-ui,sans-serif}
   function logToFile(m){_errors.push(new Date().toISOString()+" "+m)}
   window._dumpErrors=function(){return _errors.join("\n")}
 
-  // ---- map init ----
+  // ---------------------------------------------------------------------------
+  // MAP INIT
+  // Uses CARTO Positron basemap. Center/zoom are near Phoenix, AZ where the
+  // habitat restoration area is located. hash:true syncs view state to the URL.
+  // ---------------------------------------------------------------------------
   const map = new maplibregl.Map({
     container:"map",
     style:"https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
@@ -57,6 +65,17 @@ html,body{height:100%;font-family:system-ui,sans-serif}
 
   map.addControl(new maplibregl.NavigationControl(),"top-right");
 
+  // ---------------------------------------------------------------------------
+  // LOAD GEOJSON DATA
+  // The shapefile (NAD83 HARN State Plane AZ Central, feet) was pre-converted
+  // to WGS84 GeoJSON using geopandas:
+  //
+  //   gdf = gpd.read_file("LimitsofHabitatRestorationArea.shp")
+  //   gdf = gdf.to_crs(epsg=4326)
+  //   gdf.to_file("data.geojson", driver="GeoJSON")
+  //
+  // The result is a single polygon feature along the Salt River corridor.
+  // ---------------------------------------------------------------------------
   map.on("load",function(){
     console.info("[MAP] style loaded, fetching data.geojson");
 
@@ -70,6 +89,7 @@ html,body{height:100%;font-family:system-ui,sans-serif}
 
         map.addSource("habitat",{type:"geojson",data:geojson});
 
+        // Semi-transparent green fill for the restoration area
         map.addLayer({
           id:"habitat-fill",
           type:"fill",
@@ -80,6 +100,7 @@ html,body{height:100%;font-family:system-ui,sans-serif}
           }
         });
 
+        // Darker green outline
         map.addLayer({
           id:"habitat-outline",
           type:"line",
@@ -90,7 +111,7 @@ html,body{height:100%;font-family:system-ui,sans-serif}
           }
         });
 
-        // fit to bounds
+        // Auto-fit the map to the data extent
         const bounds=new maplibregl.LngLatBounds();
         geojson.features.forEach(function(f){
           if(f.geometry.type==="Polygon"){
@@ -110,19 +131,38 @@ html,body{height:100%;font-family:system-ui,sans-serif}
       });
   });
 
-  // ---- FOV slider ----
+  // ---------------------------------------------------------------------------
+  // FOV (Field of View) SLIDER
+  //
+  // MapLibre has NO public API for FOV. The only way is through the internal
+  // transform object:
+  //
+  //   map.transform.fov = degrees;   // setter clamps to [0.01, 60]
+  //   map.triggerRepaint();           // force redraw
+  //
+  // The setter lives in src/geo/transform.ts:
+  //   set fov(t) { t = Math.max(.01, Math.min(60, t)); ... }
+  //
+  // Default FOV is ~36.87° — derived from 2 * atan(3/4), i.e. the perspective
+  // where camera distance equals viewport height.
+  //
+  // To discover this yourself:
+  //   1. Open devtools on any MapLibre map
+  //   2. Inspect map.transform — all camera internals are there
+  //   3. Or search the maplibre-gl-js repo for "set fov"
+  // ---------------------------------------------------------------------------
   const slider=document.getElementById("fov-slider");
   const valSpan=document.getElementById("fov-val");
 
-  // set initial FOV to match slider default
+  // Set initial FOV to match slider default (~36°, close to MapLibre's own default)
   map.transform.fov = parseFloat(slider.value);
   map.triggerRepaint();
 
   slider.addEventListener("input",function(){
     const fov=parseFloat(this.value);
     valSpan.textContent=fov;
-    map.transform.fov=fov;
-    map.triggerRepaint();
+    map.transform.fov=fov;    // internal setter, no public API exists
+    map.triggerRepaint();      // must manually trigger redraw
     console.info("[FOV]",fov);
   });
 
